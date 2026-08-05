@@ -18,7 +18,7 @@ except ImportError:
     HAS_TORCH = False
 
 # 页面配置
-st.set_page_config(page_title="AI Crypto Workbench V9 Dual-Advisor", layout="wide", page_icon="⚡")
+st.set_page_config(page_title="AI Crypto Workbench V9.1 Fix", layout="wide", page_icon="⚡")
 
 # CSS 机构级暗黑 UI
 st.markdown("""
@@ -30,43 +30,54 @@ st.markdown("""
     div[data-testid="stMetricValue"] > div { color: #F0F3FA !important; font-size: 1.4rem !important; font-weight: 700 !important; }
     button[data-baseweb="tab"] { background-color: #161A23 !important; border: 1px solid #222735 !important; border-radius: 8px !important; color: #8A93A6 !important; padding: 10px 20px !important; }
     button[data-baseweb="tab"][aria-selected="true"] { background-color: #2962FF !important; color: #FFFFFF !important; border-color: #2962FF !important; }
-    .advisor-box { background: #1A1D24; padding: 14px; border-radius: 8px; border-left: 4px solid #2962FF; margin-bottom: 12px; }
     </style>
 """, unsafe_allow_html=True)
 
-# ==================== 1. API DATA LAYER (多周期多数据源) ====================
+# ==================== 1. 多交易所智能修复 API ====================
 @st.cache_data(ttl=5)
 def fetch_klines(exchange="Gate.io", symbol="BTC_USDT", interval="1h", limit=120):
+    used_exchange = exchange
     try:
         if exchange == "Binance":
             b_symbol = symbol.replace("_", "")
-            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={b_symbol}&interval={interval}&limit={limit}"
-            res = requests.get(url, timeout=5).json()
-            df = pd.DataFrame(res, columns=['t', 'o', 'h', 'l', 'c', 'v', 'close_time', 'qav', 'num_trades', 'tb', 'tq', 'i'])
-            df['t'] = pd.to_datetime(df['t'], unit='ms')
-            for col in ['o', 'h', 'l', 'c', 'v']: df[col] = df[col].astype(float)
-            df.rename(columns={'t': 'Time', 'o': 'Open', 'h': 'High', 'l': 'Low', 'c': 'Close', 'v': 'Volume'}, inplace=True)
-            return df
+            url = f"https://api.binance.com/api/v3/klines?symbol={b_symbol}&interval={interval}&limit={limit}"
+            res = requests.get(url, timeout=3).json()
+            if isinstance(res, list) and len(res) > 0:
+                df = pd.DataFrame(res, columns=['t', 'o', 'h', 'l', 'c', 'v', 'close_time', 'qav', 'num_trades', 'tb', 'tq', 'i'])
+                df['t'] = pd.to_datetime(df['t'], unit='ms')
+                for col in ['o', 'h', 'l', 'c', 'v']: df[col] = df[col].astype(float)
+                df.rename(columns={'t': 'Time', 'o': 'Open', 'h': 'High', 'l': 'Low', 'c': 'Close', 'v': 'Volume'}, inplace=True)
+                return df, used_exchange
+
         elif exchange == "OKX":
+            # 修复：OKX 必须传大写 1H, 4H, 1D
+            okx_bar = interval.upper() if interval.endswith(('h', 'd')) else interval
             okx_symbol = symbol.replace("_", "-") + "-SWAP"
-            url = f"https://www.okx.com/api/v5/market/candles?instId={okx_symbol}&bar={interval}&limit={limit}"
-            res = requests.get(url, timeout=5).json().get("data", [])
-            df = pd.DataFrame(res, columns=['t', 'o', 'h', 'l', 'c', 'v', 'volCcy', 'volCcyQuote', 'confirm'])
-            df['t'] = pd.to_datetime(df['t'].astype(float), unit='ms')
-            for col in ['o', 'h', 'l', 'c', 'v']: df[col] = df[col].astype(float)
-            df = df.iloc[::-1]
-            df.rename(columns={'t': 'Time', 'o': 'Open', 'h': 'High', 'l': 'Low', 'c': 'Close', 'v': 'Volume'}, inplace=True)
-            return df
-        else: # Gate.io
-            url = f"https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract={symbol}&interval={interval}&limit={limit}"
-            res = requests.get(url, timeout=5).json()
-            df = pd.DataFrame(res)
-            df['t'] = pd.to_datetime(df['t'], unit='s')
-            for col in ['c', 'h', 'l', 'o', 'v']: df[col] = df[col].astype(float)
-            df.rename(columns={'t': 'Time', 'o': 'Open', 'h': 'High', 'l': 'Low', 'c': 'Close', 'v': 'Volume'}, inplace=True)
-            return df
+            url = f"https://www.okx.com/api/v5/market/candles?instId={okx_symbol}&bar={okx_bar}&limit={limit}"
+            res = requests.get(url, timeout=3).json()
+            data = res.get("data", [])
+            if isinstance(data, list) and len(data) > 0:
+                df = pd.DataFrame(data, columns=['t', 'o', 'h', 'l', 'c', 'v', 'volCcy', 'volCcyQuote', 'confirm'])
+                df['t'] = pd.to_datetime(df['t'].astype(float), unit='ms')
+                for col in ['o', 'h', 'l', 'c', 'v']: df[col] = df[col].astype(float)
+                df = df.iloc[::-1]
+                df.rename(columns={'t': 'Time', 'o': 'Open', 'h': 'High', 'l': 'Low', 'c': 'Close', 'v': 'Volume'}, inplace=True)
+                return df, used_exchange
     except Exception:
-        return pd.DataFrame()
+        pass # 若失败，无缝降级走 Gate 备用通道
+
+    # 智能备用通道 (Gate.io)
+    try:
+        used_exchange = f"{exchange} (已切至Gate备用)" if exchange != "Gate.io" else "Gate.io"
+        url = f"https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract={symbol}&interval={interval}&limit={limit}"
+        res = requests.get(url, timeout=5).json()
+        df = pd.DataFrame(res)
+        df['t'] = pd.to_datetime(df['t'], unit='s')
+        for col in ['c', 'h', 'l', 'o', 'v']: df[col] = df[col].astype(float)
+        df.rename(columns={'t': 'Time', 'o': 'Open', 'h': 'High', 'l': 'Low', 'c': 'Close', 'v': 'Volume'}, inplace=True)
+        return df, used_exchange
+    except Exception:
+        return pd.DataFrame(), used_exchange
 
 @st.cache_data(ttl=60)
 def fetch_funding_rate(symbol="BTC_USDT"):
@@ -117,7 +128,7 @@ if HAS_TORCH:
 def calculate_indicators(df):
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['MA50'] = df['Close'].rolling(window=50).mean()
-    df['MA200'] = df['Close'].rolling(window=min(200, len(df))).mean() # 大周期MA200
+    df['MA200'] = df['Close'].rolling(window=min(200, len(df))).mean()
     std = df['Close'].rolling(window=20).std()
     df['BB_Upper'] = df['MA20'] + (std * 2)
     df['BB_Lower'] = df['MA20'] - (std * 2)
@@ -180,7 +191,7 @@ def train_and_predict_lstm(df, seq_length=10, pred_steps=3):
     return unscaled_preds, ((unscaled_preds[-1] - df['Close'].iloc[-1]) / df['Close'].iloc[-1]) * 100
 
 # ==================== 3. 侧边栏与数据抓取 ====================
-st.sidebar.title("⚡ AI Advisor V9")
+st.sidebar.title("⚡ AI Advisor V9.1")
 exchange = st.sidebar.selectbox("数据源", ["Gate.io", "Binance", "OKX"], index=0)
 symbol = st.sidebar.selectbox("标的", ["BTC_USDT", "ETH_USDT", "SOL_USDT"], index=0)
 
@@ -191,8 +202,8 @@ tg_chat_id = st.sidebar.text_input("Chat ID")
 auto_refresh = st.sidebar.checkbox("⏱️ 自动刷新 (15s)", value=False)
 
 # 获取短线 (1H) 与长线 (1D) 数据
-df_short = fetch_klines(exchange=exchange, symbol=symbol, interval="1h", limit=120)
-df_long = fetch_klines(exchange=exchange, symbol=symbol, interval="1d", limit=200)
+df_short, real_ex_short = fetch_klines(exchange=exchange, symbol=symbol, interval="1h", limit=120)
+df_long, real_ex_long = fetch_klines(exchange=exchange, symbol=symbol, interval="1d", limit=200)
 
 funding_rate = fetch_funding_rate(symbol=symbol)
 news_list, macro_score = fetch_macro_news()
@@ -210,7 +221,7 @@ if not df_short.empty:
 
     # 顶栏仪表盘
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("当前实时价", f"${current_price:,.1f}", f"数据源: {exchange}")
+    c1.metric("当前实时价", f"${current_price:,.1f}", f"通道: {real_ex_short}")
     c2.metric("资金费率", f"{funding_rate:+.4f}%", "偏热" if abs(funding_rate)>0.015 else "健康")
     c3.metric("短线预测 (LSTM)", f"{lstm_change_pct:+.2f}%" if lstm_preds is not None else "N/A")
     c4.metric("宏观情绪指数", f"{macro_score}", "偏鸽/利好" if macro_score>10 else "偏鹰/利空")
@@ -229,7 +240,6 @@ if not df_short.empty:
     with main_tab1:
         st.subheader("⚡ 短线交易 AI Advisor (1H/4H 高频智能建议)")
         
-        # 计算短线得分
         short_score = 50
         reasons_short = []
         if current_price > ma20_val: short_score += 15; reasons_short.append("站稳 1H MA20 均线，短线多头偏强。")
@@ -253,14 +263,12 @@ if not df_short.empty:
             entry_p = round(support_val * 1.001, 1); sl_p = round(entry_p * 0.992, 1); tp_p = round(entry_p + (entry_p - sl_p) * 1.8, 1)
             st.info(f"### 🟡 短线 AI 建议：震荡观望，回调挂多 (置信度: {short_score}/100)")
 
-        # 短线交易信号卡片
         col_s1, col_s2, col_s3, col_s4 = st.columns(4)
         col_s1.metric("建议进场点 (Limit)", f"${entry_p}")
         col_s2.metric("建议止损点 (SL)", f"${sl_p}")
         col_s3.metric("建议止盈点 (TP)", f"${tp_p}")
         col_s4.metric("建议杠杆", "5X 逐仓")
 
-        # 图表
         fig_s = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
         fig_s.add_trace(go.Candlestick(x=df_short['Time'], open=df_short['Open'], high=df_short['High'], low=df_short['Low'], close=df_short['Close'], name='1H K线'), row=1, col=1)
         fig_s.add_trace(go.Scatter(x=df_short['Time'], y=df_short['MA20'], mode='lines', name='MA20', line=dict(color='orange')), row=1, col=1)
@@ -270,7 +278,6 @@ if not df_short.empty:
         fig_s.update_layout(height=450, xaxis_rangeslider_visible=False, template="plotly_dark", margin=dict(l=5, r=5, t=10, b=5))
         st.plotly_chart(fig_s, use_container_width=True)
 
-        # Telegram 推送
         report_short = f"⚡ *短线 AI 交易信号* ⚡\n• 标的: {symbol}\n• 方向: {trade_dir}\n• 进场点: ${entry_p}\n• 止损: ${sl_p}\n• 止盈: ${tp_p}"
         if st.button("📱 推送短线信号到 Telegram"):
             ok, msg = send_telegram_alert(tg_token, tg_chat_id, report_short)
@@ -285,17 +292,14 @@ if not df_short.empty:
             df_long = calculate_indicators(df_long)
             ma200_long = df_long['MA200'].iloc[-1]
             rsi_long = df_long['RSI'].iloc[-1]
-            
-            # 长线估值比率 (Current Price / MA200)
             valuation_ratio = current_price / ma200_long if ma200_long > 0 else 1.0
 
             st.markdown("#### 📊 长线周期估值模型 (Valuation & Cycles)")
             v_col1, v_col2, v_col3 = st.columns(3)
-            v_col1.metric("日线 MA200 牛熊牛生命线", f"${ma200_long:,.1f}")
+            v_col1.metric("日线 MA200 牛熊生命线", f"${ma200_long:,.1f}")
             v_col2.metric("估值乘数 (Price/MA200)", f"{valuation_ratio:.2f} X")
-            v_col3.metric("日线 RSI 周期相对强弱", f"{rsi_long:.1f}")
+            v_col3.metric("日线 RSI 相对强弱", f"{rsi_long:.1f}")
 
-            # 长线 AI 决策判定
             if valuation_ratio < 0.85 or rsi_long < 35:
                 long_action = "🟢 **策略：强力加仓 / 加速定投 (Heavy Accumulation)**"
                 long_desc = "当前价格处于严重低估区（甚至低于 200 日均线），历史极度罕见的长期黄金底部！建议加大现货定投额度，分批抄底。"
@@ -311,13 +315,10 @@ if not df_short.empty:
 
             st.info(f"### 长线 AI 核心配置建议：\n{long_action}\n\n**周期评估分析：** {long_desc}")
 
-            # 资产配置建议饼图/卡片
             c_a, c_b = st.columns(2)
             c_a.metric("建议现货持仓比例", alloc_spot)
             c_b.metric("建议 USDT 避险现金流比例", alloc_cash)
 
-            # 长线日线图表
-            st.markdown("#### 📈 日线 MA200 牛熊大周期图表")
             fig_l = go.Figure()
             fig_l.add_trace(go.Candlestick(x=df_long['Time'], open=df_long['Open'], high=df_long['High'], low=df_long['Low'], close=df_long['Close'], name='日K线'))
             fig_l.add_trace(go.Scatter(x=df_long['Time'], y=df_long['MA200'], mode='lines', name='MA200 牛熊分界线', line=dict(color='purple', width=2.5)))
