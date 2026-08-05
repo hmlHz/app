@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 
 # 页面配置
-st.set_page_config(page_title="AI 交易工作台 V3.1 Pro", layout="wide", page_icon="📱")
+st.set_page_config(page_title="AI 交易工作台 V3.2 修复版", layout="wide", page_icon="📱")
 
 # CSS 移动端优化
 st.markdown("""
@@ -18,7 +18,6 @@ st.markdown("""
     div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
     div[data-testid="stMetricLabel"] { font-size: 0.8rem !important; }
     .stButton>button { width: 100%; border-radius: 8px; height: 3em; background-color: #2962FF; color: white; font-weight: bold; }
-    .ai-card { background-color: #1A2130; border-left: 5px solid #2962FF; padding: 12px; border-radius: 5px; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -92,7 +91,7 @@ if not df.empty:
 
     st.markdown("---")
 
-    # --- 🧠 核心新增：AI 深度诊断与行动指南 ---
+    # --- 🧠 核心：AI 动态评分与方向匹配 ---
     st.subheader("🧠 AI 战局诊断与决策指南")
 
     score = 50
@@ -103,7 +102,7 @@ if not df.empty:
         reasons.append("价格站在 MA20 均线上方，多头占据中短期主导权。")
     else:
         score -= 15
-        reasons.append("价格受制于 MA20 均线下方，短期上方存在一定抛压。")
+        reasons.append("价格受制于 MA20 均线下方，短期上方存在抛压。")
 
     if macd_hist > 0:
         score += 15
@@ -123,29 +122,42 @@ if not df.empty:
         score += 20
         reasons.append("价格逼近布林带下轨，属于强力插针反弹区。")
 
-    # 决策判定
-    entry_p = round(support_val * 1.001, 1)
-    sl_p = round(support_val * 0.992, 1)
-    tp_p = round(current_price + (current_price - sl_p) * 1.8, 1)
-
+    # --- 关键修复：根据得分动态计算【做多】还是【做空】点位 ---
     if score >= 65:
-        st.success(f"### 🟢 AI 决策建议：低吸开多 (多头共振得分: {score}/100)")
-        st.write(f"👉 **战术指南：** 极佳做多机会！**千万不要市价追高**，建议在附近支撑位 **`${entry_p}`** 挂限价多单，带好 0.8% 止损！")
+        trade_dir = "买入做多 (LONG)"
+        entry_p = round(support_val * 1.001, 1)
+        sl_p = round(entry_p * 0.992, 1)
+        tp_p = round(entry_p + (entry_p - sl_p) * 1.8, 1)
+        
+        st.success(f"### 🟢 AI 决策建议：低吸开多 (得分: {score}/100)")
+        st.write(f"👉 **战术指南：** 极佳做多机会！在附近支撑位 **`${entry_p}`** 挂限价多单，带好 0.8% 止损。")
+
     elif score <= 35:
-        st.warning(f"### 🔴 AI 决策建议：观望 / 谨慎试空 (多头共振得分: {score}/100)")
-        st.write(f"👉 **战术指南：** 上方压制明显，性价比极低！建议耐心观望，或等高位反弹受阻于 **`${resistance_val}`** 附近轻仓做空。")
+        trade_dir = "卖出做空 (SHORT)"
+        entry_p = round(resistance_val * 0.999, 1)
+        sl_p = round(entry_p * 1.008, 1) # 止损在阻力位上方
+        tp_p = round(entry_p - (sl_p - entry_p) * 1.8, 1) # 止盈在下方
+        
+        st.warning(f"### 🔴 AI 决策建议：逢高做空 / 观望 (得分: {score}/100)")
+        st.write(f"👉 **战术指南：** 上方压制明显！建议反弹至高位阻力位 **`${entry_p}`** 附近挂限价空单，止损设在 `${sl_p}`。")
+
     else:
-        st.info(f"### 🟡 AI 决策建议：按兵不动，挂单等待 (多头共振得分: {score}/100)")
-        st.write(f"👉 **战术指南：** 价格处于震荡区域中间，**切勿按市价开仓**！安心在 **`${entry_p}`** 提前挂好限价多单等回调上车。")
+        trade_dir = "挂单接多 (LONG)"
+        entry_p = round(support_val * 1.001, 1)
+        sl_p = round(entry_p * 0.992, 1)
+        tp_p = round(entry_p + (entry_p - sl_p) * 1.8, 1)
+        
+        st.info(f"### 🟡 AI 决策建议：按兵不动，挂单等待 (得分: {score}/100)")
+        st.write(f"👉 **战术指南：** 价格处于震荡区域中间，切勿按市价追单！安心在支撑位 **`${entry_p}`** 提前挂限价多单。")
 
     with st.expander("🔍 点击查看 AI 详细逻辑分析"):
         for r in reasons:
             st.write(f"• {r}")
 
-    # 手机一键复制点位区域
+    # 手机一键复制点位区域（修复：动态匹配做多/做空方向）
     st.markdown("---")
-    st.subheader("📋 手机一键复制参数 (去 Gate 粘贴)")
-    copy_str = f"买入位: {entry_p} | 止损: {sl_p} | 止盈: {tp_p}"
+    st.subheader("📋 手机一键复制参数 (已自动匹配方向)")
+    copy_str = f"方向: {trade_dir} | 开仓位: {entry_p} | 止损: {sl_p} | 止盈: {tp_p}"
     st.code(copy_str, language="text")
 
     # 标签页
@@ -186,9 +198,9 @@ if not df.empty:
     with tab3:
         st.subheader("📓 交易复盘日记")
         with st.form("journal"):
-            f_dir = st.selectbox("方向", ["做多 (Long)", "做空 (Short)"])
+            f_dir = st.selectbox("方向", ["买入做多 (LONG)", "卖出做空 (SHORT)"])
             f_price = st.number_input("成交价", value=current_price)
-            f_note = st.text_input("开仓依据", value="MACD金叉 + 踩MA20")
+            f_note = st.text_input("开仓依据", value="AI建议看多 + 踩支撑位")
             if st.form_submit_button("💾 保存记录"):
                 j_df = pd.DataFrame([{"时间": datetime.now().strftime("%H:%M:%S"), "币种": symbol, "方向": f_dir, "价格": f_price, "依据": f_note}])
                 j_df.to_csv("journal.csv", mode='a', header=not os.path.exists("journal.csv"), index=False, encoding='utf-8-sig')
