@@ -18,22 +18,86 @@ except ImportError:
     HAS_TORCH = False
 
 # 页面配置
-st.set_page_config(page_title="AI Crypto Workbench V9.1 Fix", layout="wide", page_icon="⚡")
+st.set_page_config(page_title="AI Crypto Workbench Light", layout="wide", page_icon="⚡")
 
-# CSS 机构级暗黑 UI
+# --- CSS 样式重构：白底黑字网页 + 黑底K线图 ---
 st.markdown("""
     <style>
-    .stApp { background-color: #0B0E14; }
-    section[data-testid="stSidebar"] { background-color: #12161F !important; border-right: 1px solid #1E232F !important; }
-    div[data-testid="stMetric"] { background: #161A23 !important; border: 1px solid #222735 !important; border-radius: 10px !important; padding: 12px 16px !important; min-height: 95px !important; }
-    div[data-testid="stMetricLabel"] > div { color: #8A93A6 !important; font-size: 0.85rem !important; }
-    div[data-testid="stMetricValue"] > div { color: #F0F3FA !important; font-size: 1.4rem !important; font-weight: 700 !important; }
-    button[data-baseweb="tab"] { background-color: #161A23 !important; border: 1px solid #222735 !important; border-radius: 8px !important; color: #8A93A6 !important; padding: 10px 20px !important; }
-    button[data-baseweb="tab"][aria-selected="true"] { background-color: #2962FF !important; color: #FFFFFF !important; border-color: #2962FF !important; }
+    /* 1. 网页整体：亮白背景与黑色文字 */
+    .stApp {
+        background-color: #F8F9FA !important;
+        color: #1A1D20 !important;
+    }
+
+    /* 侧边栏：浅灰背景 */
+    section[data-testid="stSidebar"] {
+        background-color: #FFFFFF !important;
+        border-right: 1px solid #E9ECEF !important;
+    }
+    section[data-testid="stSidebar"] * {
+        color: #212529 !important;
+    }
+
+    /* 2. 标题与文字强制黑色 */
+    h1, h2, h3, h4, h5, h6, p, label, span, .stMarkdown {
+        color: #1A1D20 !important;
+    }
+
+    /* 3. 顶部 4 张卡片：高对比白底卡片 */
+    div[data-testid="stMetric"] {
+        background: #FFFFFF !important;
+        border: 1px solid #DEE2E6 !important;
+        border-radius: 10px !important;
+        padding: 12px 16px !important;
+        min-height: 95px !important;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.04) !important;
+    }
+    div[data-testid="stMetricLabel"] > div {
+        color: #6C757D !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stMetricValue"] > div {
+        color: #1A1D20 !important;
+        font-size: 1.4rem !important;
+        font-weight: 700 !important;
+    }
+
+    /* 4. Tab 导航美化：浅灰色选项卡，选中变电光蓝 */
+    div[data-baseweb="tab-list"] {
+        gap: 10px !important;
+        background-color: transparent !important;
+    }
+    button[data-baseweb="tab"] {
+        background-color: #E9ECEF !important;
+        border: 1px solid #CED4DA !important;
+        border-radius: 8px !important;
+        color: #343A40 !important;
+        padding: 10px 20px !important;
+        font-weight: 600 !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        background-color: #2962FF !important;
+        border-color: #2962FF !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] * {
+        color: #FFFFFF !important;
+    }
+
+    /* 5. 新闻卡片美化 */
+    .news-card-light {
+        background: #FFFFFF;
+        border: 1px solid #DEE2E6;
+        border-left: 4px solid #2962FF;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# ==================== 1. 多交易所智能修复 API ====================
+# ==================== 1. API 数据层 ====================
 @st.cache_data(ttl=5)
 def fetch_klines(exchange="Gate.io", symbol="BTC_USDT", interval="1h", limit=120):
     used_exchange = exchange
@@ -50,7 +114,6 @@ def fetch_klines(exchange="Gate.io", symbol="BTC_USDT", interval="1h", limit=120
                 return df, used_exchange
 
         elif exchange == "OKX":
-            # 修复：OKX 必须传大写 1H, 4H, 1D
             okx_bar = interval.upper() if interval.endswith(('h', 'd')) else interval
             okx_symbol = symbol.replace("_", "-") + "-SWAP"
             url = f"https://www.okx.com/api/v5/market/candles?instId={okx_symbol}&bar={okx_bar}&limit={limit}"
@@ -64,11 +127,10 @@ def fetch_klines(exchange="Gate.io", symbol="BTC_USDT", interval="1h", limit=120
                 df.rename(columns={'t': 'Time', 'o': 'Open', 'h': 'High', 'l': 'Low', 'c': 'Close', 'v': 'Volume'}, inplace=True)
                 return df, used_exchange
     except Exception:
-        pass # 若失败，无缝降级走 Gate 备用通道
+        pass
 
-    # 智能备用通道 (Gate.io)
     try:
-        used_exchange = f"{exchange} (已切至Gate备用)" if exchange != "Gate.io" else "Gate.io"
+        used_exchange = f"{exchange} (备用Gate)" if exchange != "Gate.io" else "Gate.io"
         url = f"https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract={symbol}&interval={interval}&limit={limit}"
         res = requests.get(url, timeout=5).json()
         df = pd.DataFrame(res)
@@ -114,7 +176,7 @@ def send_telegram_alert(bot_token, chat_id, message):
     except Exception as e:
         return False, f"网络错误: {e}"
 
-# ==================== 2. AI ADVISOR ENGINES ====================
+# ==================== 2. AI 算法引擎 ====================
 if HAS_TORCH:
     class CryptoLSTM(nn.Module):
         def __init__(self, input_size=4, hidden_size=32, num_layers=1, output_size=1):
@@ -190,18 +252,18 @@ def train_and_predict_lstm(df, seq_length=10, pred_steps=3):
     unscaled_preds = scaler.inverse_transform(dummy)[:, 0]
     return unscaled_preds, ((unscaled_preds[-1] - df['Close'].iloc[-1]) / df['Close'].iloc[-1]) * 100
 
-# ==================== 3. 侧边栏与数据抓取 ====================
-st.sidebar.title("⚡ AI Advisor V9.1")
+# ==================== 3. 侧边栏与主界面 ====================
+st.sidebar.title("⚡ AI Advisor")
 exchange = st.sidebar.selectbox("数据源", ["Gate.io", "Binance", "OKX"], index=0)
 symbol = st.sidebar.selectbox("标的", ["BTC_USDT", "ETH_USDT", "SOL_USDT"], index=0)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("📱 **Telegram 机器人配置**")
+st.sidebar.markdown("📱 **Telegram 机器人**")
 tg_token = st.sidebar.text_input("Bot Token", type="password")
 tg_chat_id = st.sidebar.text_input("Chat ID")
 auto_refresh = st.sidebar.checkbox("⏱️ 自动刷新 (15s)", value=False)
 
-# 获取短线 (1H) 与长线 (1D) 数据
+# 获取数据
 df_short, real_ex_short = fetch_klines(exchange=exchange, symbol=symbol, interval="1h", limit=120)
 df_long, real_ex_long = fetch_klines(exchange=exchange, symbol=symbol, interval="1d", limit=200)
 
@@ -219,16 +281,16 @@ if not df_short.empty:
     lstm_preds, lstm_change_pct = train_and_predict_lstm(df_short)
     fractal_res = pattern_matching_forecast(df_short)
 
-    # 顶栏仪表盘
+    # 顶栏仪表盘 (白底高对比)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("当前实时价", f"${current_price:,.1f}", f"通道: {real_ex_short}")
+    c1.metric("实时价格", f"${current_price:,.1f}", f"通道: {real_ex_short}")
     c2.metric("资金费率", f"{funding_rate:+.4f}%", "偏热" if abs(funding_rate)>0.015 else "健康")
     c3.metric("短线预测 (LSTM)", f"{lstm_change_pct:+.2f}%" if lstm_preds is not None else "N/A")
     c4.metric("宏观情绪指数", f"{macro_score}", "偏鸽/利好" if macro_score>10 else "偏鹰/利空")
 
     st.markdown("<br/>", unsafe_allow_html=True)
 
-    # V9 双轨主导航
+    # 双轨主导航
     main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
         "⚡ 短线 AI Advisor (Short-Term)", 
         "🏛️ 长线 AI Advisor (Long-Term)", 
@@ -236,7 +298,7 @@ if not df_short.empty:
         "📓 复盘中心 (Journal & Analytics)"
     ])
 
-    # ==================== TAB 1: 短线策略 AI ADVISOR ====================
+    # ==================== TAB 1: 短线策略 (黑底K线) ====================
     with main_tab1:
         st.subheader("⚡ 短线交易 AI Advisor (1H/4H 高频智能建议)")
         
@@ -269,13 +331,28 @@ if not df_short.empty:
         col_s3.metric("建议止盈点 (TP)", f"${tp_p}")
         col_s4.metric("建议杠杆", "5X 逐仓")
 
+        # --- 核心：Plotly 图表保持纯黑底色 (paper_bgcolor / plot_bgcolor) ---
         fig_s = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
         fig_s.add_trace(go.Candlestick(x=df_short['Time'], open=df_short['Open'], high=df_short['High'], low=df_short['Low'], close=df_short['Close'], name='1H K线'), row=1, col=1)
-        fig_s.add_trace(go.Scatter(x=df_short['Time'], y=df_short['MA20'], mode='lines', name='MA20', line=dict(color='orange')), row=1, col=1)
+        fig_s.add_trace(go.Scatter(x=df_short['Time'], y=df_short['MA20'], mode='lines', name='MA20', line=dict(color='orange', width=1.5)), row=1, col=1)
+        
         if lstm_preds is not None:
             ft = [df_short['Time'].iloc[-1] + timedelta(hours=i+1) for i in range(len(lstm_preds))]
-            fig_s.add_trace(go.Scatter(x=[df_short['Time'].iloc[-1]]+ft, y=[current_price]+list(lstm_preds), mode='lines+markers', name='LSTM推演', line=dict(color='#D500F9', dash='dot')), row=1, col=1)
-        fig_s.update_layout(height=450, xaxis_rangeslider_visible=False, template="plotly_dark", margin=dict(l=5, r=5, t=10, b=5))
+            fig_s.add_trace(go.Scatter(x=[df_short['Time'].iloc[-1]]+ft, y=[current_price]+list(lstm_preds), mode='lines+markers', name='LSTM推演', line=dict(color='#D500F9', width=2, dash='dot')), row=1, col=1)
+        
+        colors_vol = ['#00E676' if c >= o else '#FF5252' for c, o in zip(df_short['Close'], df_short['Open'])]
+        fig_s.add_trace(go.Bar(x=df_short['Time'], y=df_short['Volume'], name='成交量', marker_color=colors_vol), row=2, col=1)
+
+        # 强制图表黑底
+        fig_s.update_layout(
+            height=480, 
+            xaxis_rangeslider_visible=False, 
+            template="plotly_dark",
+            paper_bgcolor="#0E1117", 
+            plot_bgcolor="#0E1117",
+            margin=dict(l=10, r=10, t=10, b=10),
+            legend=dict(orientation="h", y=1.02)
+        )
         st.plotly_chart(fig_s, use_container_width=True)
 
         report_short = f"⚡ *短线 AI 交易信号* ⚡\n• 标的: {symbol}\n• 方向: {trade_dir}\n• 进场点: ${entry_p}\n• 止损: ${sl_p}\n• 止盈: ${tp_p}"
@@ -284,7 +361,7 @@ if not df_short.empty:
             if ok: st.success(msg)
             else: st.error(msg)
 
-    # ==================== TAB 2: 长线配置 AI ADVISOR ====================
+    # ==================== TAB 2: 长线配置 (黑底K线) ====================
     with main_tab2:
         st.subheader("🏛️ 长线配置 AI Advisor (日K/周K 周期估值与定投建议)")
 
@@ -319,13 +396,21 @@ if not df_short.empty:
             c_a.metric("建议现货持仓比例", alloc_spot)
             c_b.metric("建议 USDT 避险现金流比例", alloc_cash)
 
+            # 长线黑底图表
             fig_l = go.Figure()
             fig_l.add_trace(go.Candlestick(x=df_long['Time'], open=df_long['Open'], high=df_long['High'], low=df_long['Low'], close=df_long['Close'], name='日K线'))
-            fig_l.add_trace(go.Scatter(x=df_long['Time'], y=df_long['MA200'], mode='lines', name='MA200 牛熊分界线', line=dict(color='purple', width=2.5)))
-            fig_l.update_layout(height=450, xaxis_rangeslider_visible=False, template="plotly_dark", margin=dict(l=5, r=5, t=10, b=5))
+            fig_l.add_trace(go.Scatter(x=df_long['Time'], y=df_long['MA200'], mode='lines', name='MA200 牛熊分界线', line=dict(color='#D500F9', width=2.5)))
+            fig_l.update_layout(
+                height=450, 
+                xaxis_rangeslider_visible=False, 
+                template="plotly_dark",
+                paper_bgcolor="#0E1117", 
+                plot_bgcolor="#0E1117",
+                margin=dict(l=10, r=10, t=10, b=10)
+            )
             st.plotly_chart(fig_l, use_container_width=True)
 
-    # ==================== TAB 3: ACCOUNT & RISK ====================
+    # ==================== TAB 3: 风控与仓位 ====================
     with main_tab3:
         st.subheader("💼 账户与风控中心 (Account & Risk Engine)")
         acc_col1, acc_col2 = st.columns(2)
@@ -347,7 +432,7 @@ if not df_short.empty:
             copy_str = f"方向: {trade_dir} | 进场: {entry_p} | 止损: {sl_p} | 止盈: {tp_p}"
             st.code(copy_str, language="text")
 
-    # ==================== TAB 4: JOURNAL ====================
+    # ==================== TAB 4: 复盘中心 ====================
     with main_tab4:
         st.subheader("📓 复盘中心与胜率统计 (Journal & Analytics)")
         journal_file = "trade_journal.csv"
