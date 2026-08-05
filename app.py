@@ -18,93 +18,43 @@ except ImportError:
     HAS_TORCH = False
 
 # 页面配置
-st.set_page_config(page_title="AI Crypto Workbench Light", layout="wide", page_icon="⚡")
+st.set_page_config(page_title="AI Crypto Terminal V10", layout="wide", page_icon="⚡")
 
-# --- CSS 样式重构：白底黑字网页 + 黑底K线图 ---
+# CSS 样式重构（白底黑字 + 黑底K线图）
 st.markdown("""
     <style>
-    /* 1. 网页整体：亮白背景与黑色文字 */
-    .stApp {
-        background-color: #F8F9FA !important;
-        color: #1A1D20 !important;
-    }
-
-    /* 侧边栏：浅灰背景 */
-    section[data-testid="stSidebar"] {
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #E9ECEF !important;
-    }
-    section[data-testid="stSidebar"] * {
-        color: #212529 !important;
-    }
-
-    /* 2. 标题与文字强制黑色 */
-    h1, h2, h3, h4, h5, h6, p, label, span, .stMarkdown {
-        color: #1A1D20 !important;
-    }
-
-    /* 3. 顶部 4 张卡片：高对比白底卡片 */
+    .stApp { background-color: #F8F9FA !important; color: #1A1D20 !important; }
+    section[data-testid="stSidebar"] { background-color: #FFFFFF !important; border-right: 1px solid #E9ECEF !important; }
+    section[data-testid="stSidebar"] * { color: #212529 !important; }
+    h1, h2, h3, h4, h5, h6, p, label, span, .stMarkdown { color: #1A1D20 !important; }
     div[data-testid="stMetric"] {
-        background: #FFFFFF !important;
-        border: 1px solid #DEE2E6 !important;
-        border-radius: 10px !important;
-        padding: 12px 16px !important;
-        min-height: 95px !important;
+        background: #FFFFFF !important; border: 1px solid #DEE2E6 !important;
+        border-radius: 10px !important; padding: 12px 16px !important; min-height: 95px !important;
         box-shadow: 0 2px 6px rgba(0,0,0,0.04) !important;
     }
-    div[data-testid="stMetricLabel"] > div {
-        color: #6C757D !important;
-        font-size: 0.85rem !important;
-        font-weight: 600 !important;
-    }
-    div[data-testid="stMetricValue"] > div {
-        color: #1A1D20 !important;
-        font-size: 1.4rem !important;
-        font-weight: 700 !important;
-    }
-
-    /* 4. Tab 导航美化：浅灰色选项卡，选中变电光蓝 */
-    div[data-baseweb="tab-list"] {
-        gap: 10px !important;
-        background-color: transparent !important;
-    }
-    button[data-baseweb="tab"] {
-        background-color: #E9ECEF !important;
-        border: 1px solid #CED4DA !important;
-        border-radius: 8px !important;
-        color: #343A40 !important;
-        padding: 10px 20px !important;
-        font-weight: 600 !important;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] {
-        background-color: #2962FF !important;
-        border-color: #2962FF !important;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] * {
-        color: #FFFFFF !important;
-    }
-
-    /* 5. 新闻卡片美化 */
-    .news-card-light {
-        background: #FFFFFF;
-        border: 1px solid #DEE2E6;
-        border-left: 4px solid #2962FF;
-        border-radius: 8px;
-        padding: 10px 14px;
-        margin-bottom: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }
+    div[data-testid="stMetricLabel"] > div { color: #6C757D !important; font-size: 0.85rem !important; font-weight: 600 !important; }
+    div[data-testid="stMetricValue"] > div { color: #1A1D20 !important; font-size: 1.4rem !important; font-weight: 700 !important; }
+    div[data-baseweb="tab-list"] { gap: 10px !important; background-color: transparent !important; }
+    button[data-baseweb="tab"] { background-color: #E9ECEF !important; border: 1px solid #CED4DA !important; border-radius: 8px !important; color: #343A40 !important; padding: 10px 20px !important; font-weight: 600 !important; }
+    button[data-baseweb="tab"][aria-selected="true"] { background-color: #2962FF !important; border-color: #2962FF !important; }
+    button[data-baseweb="tab"][aria-selected="true"] * { color: #FFFFFF !important; }
+    .news-card-light { background: #FFFFFF; border: 1px solid #DEE2E6; border-left: 4px solid #2962FF; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
     </style>
 """, unsafe_allow_html=True)
 
-# ==================== 1. API 数据层 ====================
+# ==================== 1. API 数据层 (多币种多周期适配) ====================
 @st.cache_data(ttl=5)
 def fetch_klines(exchange="Gate.io", symbol="BTC_USDT", interval="1h", limit=120):
     used_exchange = exchange
+    # 格式标准化转换
+    binance_interval = interval
+    okx_interval = interval.upper() if interval.endswith(('h', 'd', 'w')) else interval
+    gate_interval = "7d" if interval == "1w" else interval
+
     try:
         if exchange == "Binance":
             b_symbol = symbol.replace("_", "")
-            url = f"https://api.binance.com/api/v3/klines?symbol={b_symbol}&interval={interval}&limit={limit}"
+            url = f"https://api.binance.com/api/v3/klines?symbol={b_symbol}&interval={binance_interval}&limit={limit}"
             res = requests.get(url, timeout=3).json()
             if isinstance(res, list) and len(res) > 0:
                 df = pd.DataFrame(res, columns=['t', 'o', 'h', 'l', 'c', 'v', 'close_time', 'qav', 'num_trades', 'tb', 'tq', 'i'])
@@ -114,9 +64,8 @@ def fetch_klines(exchange="Gate.io", symbol="BTC_USDT", interval="1h", limit=120
                 return df, used_exchange
 
         elif exchange == "OKX":
-            okx_bar = interval.upper() if interval.endswith(('h', 'd')) else interval
             okx_symbol = symbol.replace("_", "-") + "-SWAP"
-            url = f"https://www.okx.com/api/v5/market/candles?instId={okx_symbol}&bar={okx_bar}&limit={limit}"
+            url = f"https://www.okx.com/api/v5/market/candles?instId={okx_symbol}&bar={okx_interval}&limit={limit}"
             res = requests.get(url, timeout=3).json()
             data = res.get("data", [])
             if isinstance(data, list) and len(data) > 0:
@@ -131,7 +80,7 @@ def fetch_klines(exchange="Gate.io", symbol="BTC_USDT", interval="1h", limit=120
 
     try:
         used_exchange = f"{exchange} (备用Gate)" if exchange != "Gate.io" else "Gate.io"
-        url = f"https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract={symbol}&interval={interval}&limit={limit}"
+        url = f"https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract={symbol}&interval={gate_interval}&limit={limit}"
         res = requests.get(url, timeout=5).json()
         df = pd.DataFrame(res)
         df['t'] = pd.to_datetime(df['t'], unit='s')
@@ -141,7 +90,7 @@ def fetch_klines(exchange="Gate.io", symbol="BTC_USDT", interval="1h", limit=120
     except Exception:
         return pd.DataFrame(), used_exchange
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def fetch_funding_rate(symbol="BTC_USDT"):
     try:
         url = f"https://api.gateio.ws/api/v4/futures/usdt/contracts/{symbol}"
@@ -150,11 +99,11 @@ def fetch_funding_rate(symbol="BTC_USDT"):
     except Exception:
         return 0.001
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=15) # 15 秒极速更新实时新闻
 def fetch_macro_news():
     try:
         url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
-        articles = requests.get(url, timeout=5).json().get("Data", [])[:5]
+        articles = requests.get(url, timeout=5).json().get("Data", [])[:6]
         bullish = ['cut', 'rate cut', 'approval', 'etf', 'bull', 'stimulus', 'support', 'trump', 'buy']
         bearish = ['ban', 'sec', 'lawsuit', 'inflation', 'war', 'hawkish', 'sell', 'crash', 'drop']
         news_list, score = [], 0
@@ -162,7 +111,8 @@ def fetch_macro_news():
             text = (a.get("title", "") + " " + a.get("body", "")).lower()
             s = sum(15 for w in bullish if w in text) - sum(15 for w in bearish if w in text)
             score += s
-            news_list.append({"title": a.get("title", ""), "source": a.get("source_info", {}).get("name", "News"), "url": a.get("url", "#"), "score": s})
+            pub_time = datetime.fromtimestamp(a.get("published_on", time.time())).strftime("%H:%M")
+            news_list.append({"title": a.get("title", ""), "source": a.get("source_info", {}).get("name", "News"), "url": a.get("url", "#"), "score": s, "time": pub_time})
         return news_list, max(min(score, 100), -100)
     except Exception:
         return [], 0
@@ -252,19 +202,32 @@ def train_and_predict_lstm(df, seq_length=10, pred_steps=3):
     unscaled_preds = scaler.inverse_transform(dummy)[:, 0]
     return unscaled_preds, ((unscaled_preds[-1] - df['Close'].iloc[-1]) / df['Close'].iloc[-1]) * 100
 
-# ==================== 3. 侧边栏与主界面 ====================
-st.sidebar.title("⚡ AI Advisor")
-exchange = st.sidebar.selectbox("数据源", ["Gate.io", "Binance", "OKX"], index=0)
-symbol = st.sidebar.selectbox("标的", ["BTC_USDT", "ETH_USDT", "SOL_USDT"], index=0)
+# ==================== 3. 侧边栏（包含自定义币种与全周期） ====================
+st.sidebar.title("⚡ AI Terminal V10")
+exchange = st.sidebar.selectbox("选择数据源", ["Gate.io", "Binance", "OKX"], index=0)
+
+# 自定义币种选择逻辑
+preset_symbols = ["BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "PEPE_USDT", "XRP_USDT", "✍️ 预设外自定义输入"]
+symbol_choice = st.sidebar.selectbox("选择预设交易对", preset_symbols, index=0)
+
+if symbol_choice == "✍️ 预设外自定义输入":
+    custom_in = st.sidebar.text_input("输入任意交易对 (如 SUI_USDT)", value="SUI_USDT").upper().strip()
+    symbol = custom_in.replace("-", "_").replace("/", "_")
+else:
+    symbol = symbol_choice
+
+# 自定义 11 种 K 线周期选择
+timeframe_options = ["1m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"]
+timeframe = st.sidebar.selectbox("选择 K 线周期", timeframe_options, index=4)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("📱 **Telegram 机器人**")
 tg_token = st.sidebar.text_input("Bot Token", type="password")
 tg_chat_id = st.sidebar.text_input("Chat ID")
-auto_refresh = st.sidebar.checkbox("⏱️ 自动刷新 (15s)", value=False)
+auto_refresh = st.sidebar.checkbox("⏱️ 开启 15s 自动刷新", value=False)
 
 # 获取数据
-df_short, real_ex_short = fetch_klines(exchange=exchange, symbol=symbol, interval="1h", limit=120)
+df_short, real_ex_short = fetch_klines(exchange=exchange, symbol=symbol, interval=timeframe, limit=120)
 df_long, real_ex_long = fetch_klines(exchange=exchange, symbol=symbol, interval="1d", limit=200)
 
 funding_rate = fetch_funding_rate(symbol=symbol)
@@ -281,11 +244,11 @@ if not df_short.empty:
     lstm_preds, lstm_change_pct = train_and_predict_lstm(df_short)
     fractal_res = pattern_matching_forecast(df_short)
 
-    # 顶栏仪表盘 (白底高对比)
+    # 顶栏仪表盘
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("实时价格", f"${current_price:,.1f}", f"通道: {real_ex_short}")
+    c1.metric(f"实时价格 ({symbol})", f"${current_price:,.4f}" if current_price<1 else f"${current_price:,.2f}", f"通道: {real_ex_short}")
     c2.metric("资金费率", f"{funding_rate:+.4f}%", "偏热" if abs(funding_rate)>0.015 else "健康")
-    c3.metric("短线预测 (LSTM)", f"{lstm_change_pct:+.2f}%" if lstm_preds is not None else "N/A")
+    c3.metric(f"短线预测 ({timeframe})", f"{lstm_change_pct:+.2f}%" if lstm_preds is not None else "N/A")
     c4.metric("宏观情绪指数", f"{macro_score}", "偏鸽/利好" if macro_score>10 else "偏鹰/利空")
 
     st.markdown("<br/>", unsafe_allow_html=True)
@@ -300,12 +263,12 @@ if not df_short.empty:
 
     # ==================== TAB 1: 短线策略 (黑底K线) ====================
     with main_tab1:
-        st.subheader("⚡ 短线交易 AI Advisor (1H/4H 高频智能建议)")
+        st.subheader(f"⚡ 短线交易 AI Advisor ({symbol} - {timeframe})")
         
         short_score = 50
         reasons_short = []
-        if current_price > ma20_val: short_score += 15; reasons_short.append("站稳 1H MA20 均线，短线多头偏强。")
-        else: short_score -= 15; reasons_short.append("低于 1H MA20 均线，受压制。")
+        if current_price > ma20_val: short_score += 15; reasons_short.append(f"站稳 {timeframe} MA20 均线，短线偏强。")
+        else: short_score -= 15; reasons_short.append(f"低于 {timeframe} MA20 均线，受压制。")
 
         if lstm_preds is not None and lstm_change_pct > 0.5: short_score += 20; reasons_short.append(f"LSTM 模型预测短期上涨 +{lstm_change_pct:.2f}%。")
         elif lstm_preds is not None and lstm_change_pct < -0.5: short_score -= 20; reasons_short.append(f"LSTM 模型预测短期下跌 {lstm_change_pct:.2f}%。")
@@ -314,15 +277,21 @@ if not df_short.empty:
 
         if short_score >= 65:
             trade_dir = "买入做多 (LONG)"
-            entry_p = round(support_val * 1.001, 1); sl_p = round(entry_p * 0.992, 1); tp_p = round(entry_p + (entry_p - sl_p) * 1.8, 1)
+            entry_p = round(support_val * 1.001, 4) if current_price<1 else round(support_val * 1.001, 1)
+            sl_p = round(entry_p * 0.992, 4) if current_price<1 else round(entry_p * 0.992, 1)
+            tp_p = round(entry_p + (entry_p - sl_p) * 1.8, 4) if current_price<1 else round(entry_p + (entry_p - sl_p) * 1.8, 1)
             st.success(f"### 🟢 短线 AI 建议：限价买入做多 (置信度: {short_score}/100)")
         elif short_score <= 35:
             trade_dir = "卖出做空 (SHORT)"
-            entry_p = round(resistance_val * 0.999, 1); sl_p = round(entry_p * 1.008, 1); tp_p = round(entry_p - (sl_p - entry_p) * 1.8, 1)
+            entry_p = round(resistance_val * 0.999, 4) if current_price<1 else round(resistance_val * 0.999, 1)
+            sl_p = round(entry_p * 1.008, 4) if current_price<1 else round(entry_p * 1.008, 1)
+            tp_p = round(entry_p - (sl_p - entry_p) * 1.8, 4) if current_price<1 else round(entry_p - (sl_p - entry_p) * 1.8, 1)
             st.warning(f"### 🔴 短线 AI 建议：限价卖出做空 (置信度: {short_score}/100)")
         else:
             trade_dir = "挂单接多 (LONG)"
-            entry_p = round(support_val * 1.001, 1); sl_p = round(entry_p * 0.992, 1); tp_p = round(entry_p + (entry_p - sl_p) * 1.8, 1)
+            entry_p = round(support_val * 1.001, 4) if current_price<1 else round(support_val * 1.001, 1)
+            sl_p = round(entry_p * 0.992, 4) if current_price<1 else round(entry_p * 0.992, 1)
+            tp_p = round(entry_p + (entry_p - sl_p) * 1.8, 4) if current_price<1 else round(entry_p + (entry_p - sl_p) * 1.8, 1)
             st.info(f"### 🟡 短线 AI 建议：震荡观望，回调挂多 (置信度: {short_score}/100)")
 
         col_s1, col_s2, col_s3, col_s4 = st.columns(4)
@@ -331,9 +300,9 @@ if not df_short.empty:
         col_s3.metric("建议止盈点 (TP)", f"${tp_p}")
         col_s4.metric("建议杠杆", "5X 逐仓")
 
-        # --- 核心：Plotly 图表保持纯黑底色 (paper_bgcolor / plot_bgcolor) ---
+        # Plotly 黑底图表
         fig_s = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
-        fig_s.add_trace(go.Candlestick(x=df_short['Time'], open=df_short['Open'], high=df_short['High'], low=df_short['Low'], close=df_short['Close'], name='1H K线'), row=1, col=1)
+        fig_s.add_trace(go.Candlestick(x=df_short['Time'], open=df_short['Open'], high=df_short['High'], low=df_short['Low'], close=df_short['Close'], name=f'{timeframe} K线'), row=1, col=1)
         fig_s.add_trace(go.Scatter(x=df_short['Time'], y=df_short['MA20'], mode='lines', name='MA20', line=dict(color='orange', width=1.5)), row=1, col=1)
         
         if lstm_preds is not None:
@@ -343,27 +312,18 @@ if not df_short.empty:
         colors_vol = ['#00E676' if c >= o else '#FF5252' for c, o in zip(df_short['Close'], df_short['Open'])]
         fig_s.add_trace(go.Bar(x=df_short['Time'], y=df_short['Volume'], name='成交量', marker_color=colors_vol), row=2, col=1)
 
-        # 强制图表黑底
-        fig_s.update_layout(
-            height=480, 
-            xaxis_rangeslider_visible=False, 
-            template="plotly_dark",
-            paper_bgcolor="#0E1117", 
-            plot_bgcolor="#0E1117",
-            margin=dict(l=10, r=10, t=10, b=10),
-            legend=dict(orientation="h", y=1.02)
-        )
+        fig_s.update_layout(height=480, xaxis_rangeslider_visible=False, template="plotly_dark", paper_bgcolor="#0E1117", plot_bgcolor="#0E1117", margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=1.02))
         st.plotly_chart(fig_s, use_container_width=True)
 
-        report_short = f"⚡ *短线 AI 交易信号* ⚡\n• 标的: {symbol}\n• 方向: {trade_dir}\n• 进场点: ${entry_p}\n• 止损: ${sl_p}\n• 止盈: ${tp_p}"
+        report_short = f"⚡ *短线 AI 交易信号* ⚡\n• 标的: {symbol} ({timeframe})\n• 方向: {trade_dir}\n• 进场点: ${entry_p}\n• 止损: ${sl_p}\n• 止盈: ${tp_p}"
         if st.button("📱 推送短线信号到 Telegram"):
             ok, msg = send_telegram_alert(tg_token, tg_chat_id, report_short)
             if ok: st.success(msg)
             else: st.error(msg)
 
-    # ==================== TAB 2: 长线配置 (黑底K线) ====================
+    # ==================== TAB 2: 长线配置 (日K/周K) ====================
     with main_tab2:
-        st.subheader("🏛️ 长线配置 AI Advisor (日K/周K 周期估值与定投建议)")
+        st.subheader(f"🏛️ 长线配置 AI Advisor ({symbol} - 周期估值与定投建议)")
 
         if not df_long.empty:
             df_long = calculate_indicators(df_long)
@@ -373,13 +333,13 @@ if not df_short.empty:
 
             st.markdown("#### 📊 长线周期估值模型 (Valuation & Cycles)")
             v_col1, v_col2, v_col3 = st.columns(3)
-            v_col1.metric("日线 MA200 牛熊生命线", f"${ma200_long:,.1f}")
+            v_col1.metric("日线 MA200 牛熊生命线", f"${ma200_long:,.4f}" if ma200_long<1 else f"${ma200_long:,.1f}")
             v_col2.metric("估值乘数 (Price/MA200)", f"{valuation_ratio:.2f} X")
             v_col3.metric("日线 RSI 相对强弱", f"{rsi_long:.1f}")
 
             if valuation_ratio < 0.85 or rsi_long < 35:
                 long_action = "🟢 **策略：强力加仓 / 加速定投 (Heavy Accumulation)**"
-                long_desc = "当前价格处于严重低估区（甚至低于 200 日均线），历史极度罕见的长期黄金底部！建议加大现货定投额度，分批抄底。"
+                long_desc = "当前价格处于严重低估区（低于 200 日均线），历史极度罕见的长期黄金底部！建议加大现货定投额度，分批抄底。"
                 alloc_cash, alloc_spot = "10%", "90%"
             elif 0.85 <= valuation_ratio <= 1.8:
                 long_action = "🟡 **策略：按月定投 / 观望持有 (Steady DCA)**"
@@ -396,18 +356,10 @@ if not df_short.empty:
             c_a.metric("建议现货持仓比例", alloc_spot)
             c_b.metric("建议 USDT 避险现金流比例", alloc_cash)
 
-            # 长线黑底图表
             fig_l = go.Figure()
             fig_l.add_trace(go.Candlestick(x=df_long['Time'], open=df_long['Open'], high=df_long['High'], low=df_long['Low'], close=df_long['Close'], name='日K线'))
             fig_l.add_trace(go.Scatter(x=df_long['Time'], y=df_long['MA200'], mode='lines', name='MA200 牛熊分界线', line=dict(color='#D500F9', width=2.5)))
-            fig_l.update_layout(
-                height=450, 
-                xaxis_rangeslider_visible=False, 
-                template="plotly_dark",
-                paper_bgcolor="#0E1117", 
-                plot_bgcolor="#0E1117",
-                margin=dict(l=10, r=10, t=10, b=10)
-            )
+            fig_l.update_layout(height=450, xaxis_rangeslider_visible=False, template="plotly_dark", paper_bgcolor="#0E1117", plot_bgcolor="#0E1117", margin=dict(l=10, r=10, t=10, b=10))
             st.plotly_chart(fig_l, use_container_width=True)
 
     # ==================== TAB 3: 风控与仓位 ====================
@@ -428,31 +380,49 @@ if not df_short.empty:
                 st.info(f"触发止损最大亏损：`{risk_usdt:.2f} USDT`")
 
         with acc_col2:
-            st.markdown("#### 📋 手机 Gate.io 一键复制参数")
-            copy_str = f"方向: {trade_dir} | 进场: {entry_p} | 止损: {sl_p} | 止盈: {tp_p}"
+            st.markdown(f"#### 📋 手机 Gate.io 一键复制参数 ({symbol})")
+            copy_str = f"标的: {symbol} | 方向: {trade_dir} | 进场: {entry_p} | 止损: {sl_p} | 止盈: {tp_p}"
             st.code(copy_str, language="text")
 
-    # ==================== TAB 4: 复盘中心 ====================
+    # ==================== TAB 4: 复盘中心与实时新闻 ====================
     with main_tab4:
-        st.subheader("📓 复盘中心与胜率统计 (Journal & Analytics)")
-        journal_file = "trade_journal.csv"
+        st.subheader("📰 实时加密政策新闻 & 📓 复盘中心")
 
-        with st.form("journal_form"):
-            f_col1, f_col2 = st.columns(2)
-            f_dir = f_col1.selectbox("方向", ["买入做多 (LONG)", "卖出做空 (SHORT)"])
-            f_price = f_col2.number_input("成交价格", value=current_price)
-            f_status = f_col1.selectbox("交易状态", ["持仓中", "止盈盈利 (Win)", "止损亏损 (Loss)"])
-            f_pnl = f_col2.number_input("平仓盈亏 (USDT)", value=0.0, step=0.1)
-            f_note = st.text_input("开仓依据 / 反思", value="按照短线 AI 研判挂单")
-            if st.form_submit_button("💾 保存交易日志"):
-                new_row = pd.DataFrame([{"时间": datetime.now().strftime("%Y-%m-%d %H:%M"), "标的": symbol, "方向": f_dir, "价格": f_price, "状态": f_status, "盈亏USDT": f_pnl, "心得": f_note}])
-                new_row.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False, encoding='utf-8-sig')
-                st.success("成功保存！")
+        col_n1, col_n2 = st.columns([1.5, 1])
+        with col_n1:
+            st.markdown(f"#### 🌐 实时加密新闻快讯 *(更新时间: {datetime.now().strftime('%H:%M:%S')})*")
+            if news_list:
+                for item in news_list:
+                    tag_color = "#00E676" if item['score'] > 0 else ("#FF5252" if item['score'] < 0 else "#8A93A6")
+                    tag_text = "利好" if item['score'] > 0 else ("利空" if item['score'] < 0 else "中性")
+                    st.markdown(f"""
+                    <div class="news-card-light">
+                        <div style="font-size:0.88rem; font-weight:bold; margin-bottom:4px;">
+                            <a href="{item['url']}" target="_blank" style="color:#1A1D20; text-decoration:none;">{item['title']}</a>
+                        </div>
+                        <div style="font-size:0.75rem; color:#6C757D;">
+                            发布时间: {item['time']} | 来源: {item['source']} | 情绪判定: <span style="color:{tag_color}; font-weight:bold;">{tag_text}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-        if os.path.exists(journal_file):
-            st.markdown("---")
-            j_df = pd.read_csv(journal_file, encoding='utf-8-sig')
-            st.dataframe(j_df, use_container_width=True)
+        with col_n2:
+            st.markdown("#### 📓 记账复盘")
+            journal_file = "trade_journal.csv"
+            with st.form("journal_form"):
+                f_dir = st.selectbox("方向", ["买入做多 (LONG)", "卖出做空 (SHORT)"])
+                f_price = st.number_input("成交价格", value=current_price)
+                f_status = st.selectbox("交易状态", ["持仓中", "止盈盈利 (Win)", "止损亏损 (Loss)"])
+                f_pnl = st.number_input("平仓盈亏 (USDT)", value=0.0, step=0.1)
+                f_note = st.text_input("开仓依据 / 反思", value="按照短线 AI 研判挂单")
+                if st.form_submit_button("💾 保存交易日志"):
+                    new_row = pd.DataFrame([{"时间": datetime.now().strftime("%Y-%m-%d %H:%M"), "标的": symbol, "方向": f_dir, "价格": f_price, "状态": f_status, "盈亏USDT": f_pnl, "心得": f_note}])
+                    new_row.to_csv(journal_file, mode='a', header=not os.path.exists(journal_file), index=False, encoding='utf-8-sig')
+                    st.success("成功保存！")
+
+            if os.path.exists(journal_file):
+                j_df = pd.read_csv(journal_file, encoding='utf-8-sig')
+                st.dataframe(j_df, use_container_width=True)
 
     if auto_refresh:
         time.sleep(15)
